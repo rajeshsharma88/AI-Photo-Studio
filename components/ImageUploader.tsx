@@ -1,21 +1,29 @@
-
-import React, { useState, useRef } from 'react';
-import { UploadCloudIcon, XIcon } from './Icons';
+import React, { useState, useRef, useEffect } from 'react';
+import { UploadCloudIcon, XIcon, LoaderCircleIcon } from './Icons';
 
 interface ImageUploaderProps {
     title: string;
     onFileSelect: (file: File | null) => void;
+    isLoading?: boolean;
+    initialPreview?: string | null;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({ title, onFileSelect }) => {
+const ImageUploader: React.FC<ImageUploaderProps> = ({ title, onFileSelect, isLoading = false, initialPreview = null }) => {
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    useEffect(() => {
+        setImagePreview(initialPreview);
+    }, [initialPreview]);
+
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0] || null;
+        onFileSelect(file);
         if (file) {
             setImagePreview(URL.createObjectURL(file));
-            onFileSelect(file);
+        } else {
+            // If the file selection is cancelled, fall back to initial preview if it exists
+            setImagePreview(initialPreview);
         }
     };
 
@@ -32,8 +40,8 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ title, onFileSelect }) =>
         event.stopPropagation();
         const file = event.dataTransfer.files?.[0] || null;
         if (file && file.type.startsWith('image/')) {
-            setImagePreview(URL.createObjectURL(file));
             onFileSelect(file);
+            setImagePreview(URL.createObjectURL(file));
         }
     };
 
@@ -46,6 +54,12 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ title, onFileSelect }) =>
         <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">{title}</label>
             <div className="relative w-full h-48 rounded-lg border-2 border-dashed border-slate-600 hover:border-cyan-500 transition-colors duration-300 flex justify-center items-center group">
+                {isLoading && (
+                    <div className="absolute inset-0 bg-slate-900/80 rounded-lg flex flex-col justify-center items-center z-10">
+                        <LoaderCircleIcon className="w-8 h-8 animate-spin text-cyan-400" />
+                        <p className="mt-2 text-sm text-slate-300">Analyzing style...</p>
+                    </div>
+                )}
                 {imagePreview ? (
                     <>
                         <img src={imagePreview} alt="Preview" className="w-full h-full object-contain rounded-md p-2" />

@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { generateStyledImage } from './services/geminiService';
-import { fileToBase64 } from './utils/fileUtils';
+import { generateStyledImage, describeImageStyle } from './services/geminiService';
+import { fileToBase64, formatImageToAspectRatio } from './utils/fileUtils';
 import ImageUploader from './components/ImageUploader';
 import OptionSelector from './components/OptionSelector';
 import PresetSelector from './components/PresetSelector';
+import Lightbox from './components/Lightbox';
+import HistoryPanel from './components/HistoryPanel';
 import { ASPECT_RATIOS, LIGHTING_STYLES, CAMERA_PERSPECTIVES } from './constants';
 import { STYLE_PRESETS } from './presets';
-import { AspectRatio, CameraPerspective, LightingStyle, StylePreset } from './types';
+import { AspectRatio, CameraPerspective, LightingStyle, StylePreset, HistoryEntry } from './types';
 import { WandSparklesIcon, LoaderCircleIcon, AlertTriangleIcon, ImageIcon, DownloadIcon, SparklesIcon } from './components/Icons';
 
 const App: React.FC = () => {
@@ -21,15 +23,50 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     
+    const [styleDescription, setStyleDescription] = useState<string>('');
+    const [isAnalyzingStyle, setIsAnalyzingStyle] = useState<boolean>(false);
+    const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+
+    const [history, setHistory] = useState<HistoryEntry[]>([]);
+    const [restoredProductPreview, setRestoredProductPreview] = useState<string | null>(null);
+    const [restoredStylePreview, setRestoredStylePreview] = useState<string | null>(null);
+
+
+    // Effect to analyze the style image when it's uploaded
+    useEffect(() => {
+        if (!styleImage) {
+            setStyleDescription('');
+            return;
+        }
+
+        const analyzeStyle = async () => {
+            setIsAnalyzingStyle(true);
+            setError(null);
+            try {
+                const styleBase64 = await fileToBase64(styleImage);
+                const description = await describeImageStyle(styleBase64);
+                setStyleDescription(description);
+            } catch (err) {
+                console.error(err);
+                setError(err instanceof Error ? err.message : 'Failed to analyze style image.');
+                setStyleDescription('');
+            } finally {
+                setIsAnalyzingStyle(false);
+            }
+        };
+
+        analyzeStyle();
+    }, [styleImage]);
+
     // Effect to auto-generate the prompt
     useEffect(() => {
-        if (!productImage) {
+        const hasProductImage = productImage || restoredProductPreview;
+        if (!hasProductImage) {
             setPrompt('');
             return;
         }
 
         const generatePrompt = () => {
-            // Start with the most critical constraint: aspect ratio.
             let newPrompt = `Generate a new professional, high-resolution product photograph with a strict output aspect ratio of ${aspectRatio}.`;
             newPrompt += ` The subject is provided in the input product image.`;
             
@@ -41,7 +78,9 @@ const App: React.FC = () => {
             newPrompt += ` The scene must be illuminated with ${lightingStyle.toLowerCase()}.`;
             newPrompt += ` Capture the image from a ${cameraPerspective.toLowerCase()}.`;
 
-            if (styleImage) {
+            if (styleDescription) {
+                newPrompt += ` The overall aesthetic should be based on the following style description: "${styleDescription}"`;
+            } else if (styleImage || restoredStylePreview) {
                 newPrompt += ` The overall aesthetic, including mood, color grading, texture, and composition, should be heavily inspired by the provided style reference image.`;
             }
 
@@ -51,11 +90,14 @@ const App: React.FC = () => {
         };
         
         generatePrompt();
-    }, [aspectRatio, lightingStyle, cameraPerspective, styleImage, productImage, activePreset]);
+    }, [aspectRatio, lightingStyle, cameraPerspective, styleImage, productImage, activePreset, styleDescription, restoredProductPreview, restoredStylePreview]);
 
     const handleGenerateClick = useCallback(async () => {
-        if (!productImage || !prompt) {
-            setError('Please upload a product image and ensure a prompt is generated.');
+        const productDataSource = productImage ? await fileToBase64(productImage) : restoredProductPreview;
+        const styleDataSource = styleImage ? await fileToBase64(styleImage) : restoredStylePreview;
+
+        if (!productDataSource || !prompt) {
+            setError('Please upload a product image or restore one from history.');
             return;
         }
 
@@ -64,11 +106,26 @@ const App: React.FC = () => {
         setGeneratedImage(null);
 
         try {
-            const productBase64 = await fileToBase64(productImage);
-            const styleBase64 = styleImage ? await fileToBase64(styleImage) : null;
+            const formattedProductBase64 = await formatImageToAspectRatio(productDataSource, aspectRatio);
             
-            const result = await generateStyledImage(prompt, productBase64, styleBase64);
-            setGeneratedImage(`data:image/png;base64,${result}`);
+            const result = await generateStyledImage(prompt, formattedProductBase64, styleDataSource);
+            const newGeneratedImage = `data:image/png;base64,${result}`;
+            setGeneratedImage(newGeneratedImage);
+
+            // Add to history
+            const newEntry: HistoryEntry = {
+                id: new Date().toISOString() + Math.random(),
+                generatedImage: newGeneratedImage,
+                prompt,
+                productImage: productDataSource,
+                styleImage: styleDataSource,
+                aspectRatio,
+                lightingStyle,
+                cameraPerspective,
+                activePreset,
+                styleDescription,
+            };
+            setHistory(prev => [newEntry, ...prev]);
 
         } catch (err) {
             console.error(err);
@@ -76,13 +133,51 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [productImage, styleImage, prompt]);
+    }, [
+        productImage, 
+        styleImage, 
+        prompt, 
+        aspectRatio, 
+        lightingStyle, 
+        cameraPerspective, 
+        activePreset, 
+        styleDescription, 
+        restoredProductPreview, 
+        restoredStylePreview
+    ]);
+
+    const handleRestoreFromHistory = useCallback((id: string) => {
+        const entry = history.find(h => h.id === id);
+        if (!entry) return;
+
+        setGeneratedImage(entry.generatedImage);
+        setPrompt(entry.prompt);
+        setAspectRatio(entry.aspectRatio);
+        setLightingStyle(entry.lightingStyle);
+        setCameraPerspective(entry.cameraPerspective);
+        setActivePreset(entry.activePreset);
+        setStyleDescription(entry.styleDescription);
+
+        setProductImage(null);
+        setStyleImage(null);
+        
+        setRestoredProductPreview(entry.productImage);
+        setRestoredStylePreview(entry.styleImage);
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [history]);
+
+    const handleClearHistory = () => {
+        setHistory([]);
+    };
 
     const handlePresetSelect = (preset: StylePreset) => {
         setActivePreset(preset.name);
         setLightingStyle(preset.lightingStyle);
         setCameraPerspective(preset.cameraPerspective);
     };
+
+    const hasProductImage = productImage || restoredProductPreview;
 
     return (
         <div className="min-h-screen bg-slate-900 text-slate-200 font-sans">
@@ -104,11 +199,20 @@ const App: React.FC = () => {
                                 <div className="space-y-6">
                                     <ImageUploader
                                         title="Product Photo"
-                                        onFileSelect={setProductImage}
+                                        onFileSelect={(file) => {
+                                            setProductImage(file);
+                                            if(file) setRestoredProductPreview(null);
+                                        }}
+                                        initialPreview={restoredProductPreview}
                                     />
                                     <ImageUploader
                                         title="Style Reference (Optional)"
-                                        onFileSelect={setStyleImage}
+                                        onFileSelect={(file) => {
+                                            setStyleImage(file);
+                                            if(file) setRestoredStylePreview(null);
+                                        }}
+                                        isLoading={isAnalyzingStyle}
+                                        initialPreview={restoredStylePreview}
                                     />
                                 </div>
                             </div>
@@ -165,13 +269,13 @@ const App: React.FC = () => {
                                 rows={6}
                                 className="w-full p-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-shadow"
                                 placeholder="Upload a product image to generate a prompt..."
-                                readOnly={!productImage}
+                                readOnly={!hasProductImage}
                             />
                         </div>
                         <div className="mt-6 text-center">
                             <button
                                 onClick={handleGenerateClick}
-                                disabled={isLoading || !productImage}
+                                disabled={isLoading || !hasProductImage || isAnalyzingStyle}
                                 className="w-full md:w-auto inline-flex items-center justify-center px-12 py-4 text-lg font-bold text-white bg-gradient-to-r from-cyan-500 to-purple-600 rounded-lg hover:from-cyan-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 ease-in-out transform hover:scale-105 shadow-lg disabled:shadow-none"
                             >
                                 {isLoading ? (
@@ -216,11 +320,17 @@ const App: React.FC = () => {
                             )}
                             {generatedImage && (
                                 <>
-                                    <img
-                                        src={generatedImage}
-                                        alt="Generated product"
-                                        className="w-full h-full object-contain rounded-md"
-                                    />
+                                    <button 
+                                        onClick={() => setIsLightboxOpen(true)}
+                                        className="w-full h-full cursor-zoom-in group focus:outline-none"
+                                        aria-label="View image in lightbox"
+                                    >
+                                        <img
+                                            src={generatedImage}
+                                            alt="Generated product"
+                                            className="w-full h-full object-contain rounded-md transition-transform duration-300 group-hover:scale-105"
+                                        />
+                                    </button>
                                     <a
                                         href={generatedImage}
                                         download="ai-photo-studio-result.png"
@@ -235,7 +345,18 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                <div className="mt-8">
+                    <HistoryPanel 
+                        history={history}
+                        onRestore={handleRestoreFromHistory}
+                        onClear={handleClearHistory}
+                    />
+                </div>
             </main>
+            {isLightboxOpen && generatedImage && (
+                <Lightbox imageUrl={generatedImage} onClose={() => setIsLightboxOpen(false)} />
+            )}
         </div>
     );
 };

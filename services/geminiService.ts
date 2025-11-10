@@ -30,6 +30,34 @@ const getImagePart = (base64Data: string): ImagePart | null => {
     };
 };
 
+export const describeImageStyle = async (
+    imageBase64: string
+): Promise<string> => {
+    const imagePart = getImagePart(imageBase64);
+    if (!imagePart) {
+        throw new Error("Invalid style image data format for description.");
+    }
+
+    const prompt = "Analyze the provided image and describe its artistic style in detail. Focus on lighting, mood, color palette, composition, textures, and overall aesthetic. Provide a concise but comprehensive description suitable for guiding an AI image generator.";
+
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: {
+                parts: [
+                    { text: prompt },
+                    imagePart,
+                ],
+            },
+        });
+        
+        return response.text;
+    } catch (error) {
+        console.error("Gemini API call for style description failed:", error);
+        throw new Error("Failed to analyze style image.");
+    }
+};
+
 export const generateStyledImage = async (
     prompt: string,
     productImageBase64: string,

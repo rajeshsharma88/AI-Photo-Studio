@@ -13,3 +13,16 @@ export interface StylePreset {
     cameraPerspective: CameraPerspective;
     promptEnhancement: string;
 }
+
+export interface HistoryEntry {
+    id: string;
+    generatedImage: string; // base64 data url
+    prompt: string;
+    productImage: string; // base64 data url
+    styleImage: string | null; // base64 data url
+    aspectRatio: AspectRatio;
+    lightingStyle: LightingStyle;
+    cameraPerspective: CameraPerspective;
+    activePreset: string | null;
+    styleDescription: string;
+}

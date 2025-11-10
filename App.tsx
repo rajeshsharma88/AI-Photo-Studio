@@ -180,8 +180,8 @@ const App: React.FC = () => {
     const hasProductImage = productImage || restoredProductPreview;
 
     return (
-        <div className="min-h-screen bg-slate-900 text-slate-200 font-sans">
-            <main className="container mx-auto p-4 md:p-8">
+        <div className="min-h-screen bg-slate-900 text-slate-200 font-sans flex flex-col">
+            <main className="container mx-auto p-4 md:p-8 flex-grow">
                 <header className="text-center mb-10">
                     <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-purple-500">
                         AI Photo Studio
@@ -357,6 +357,9 @@ const App: React.FC = () => {
             {isLightboxOpen && generatedImage && (
                 <Lightbox imageUrl={generatedImage} onClose={() => setIsLightboxOpen(false)} />
             )}
+            <footer className="text-center p-4 text-slate-500 text-sm">
+                App is made by Rajesh Sharma
+            </footer>
         </div>
     );
 };
